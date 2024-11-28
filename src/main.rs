@@ -3,8 +3,10 @@
 // use signal_hook::{iterator::Signals, consts::signal::SIGSEGV};
 // use std::process;
 // use std::thread;
+
 use run_test::GlobalTest;
 mod run_test;
+mod link_list;
 // Import your specific modules here:
 // use rideables::{...};
 
@@ -39,3 +41,4 @@ fn main() {
     //     print!("{}\t", gtc.total_operations / gtc.interval);
     // }
 }
+

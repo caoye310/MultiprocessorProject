@@ -4,6 +4,8 @@ use std::alloc::{alloc, dealloc, Layout};
 // use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use rand::Rng;
+mod link_list;
+mod Hyaline;
 
 struct ThreadInfo {
     thread_id: usize,
@@ -18,7 +20,6 @@ pub struct GlobalTest {
 fn thread_main(thread_info: ThreadInfo) {
     // 模拟线程的任务
     println!("Thread PID {:?} with seed {:?}", thread_info.thread_id, thread_info.seed);
-
     // 在这里可以执行具体的任务...
 }
 
