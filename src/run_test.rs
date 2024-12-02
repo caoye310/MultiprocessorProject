@@ -5,7 +5,6 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::thread;
 use rand::Rng;
 mod link_list;
-mod Hyaline;
 
 struct ThreadInfo {
     thread_id: usize,

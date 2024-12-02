@@ -1,9 +1,14 @@
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{dealloc, Layout};
 use std::ptr::{null_mut};
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
+
+mod retired_monitor;
+use retired_monitor::RetiredMonitorable;
+use retired_monitor::Hyaline::MemoryTracker;
+use retired_monitor::Hyaline::Handle;
 
 // Node struct
 struct Node<K, V> {
@@ -14,15 +19,18 @@ struct Node<K, V> {
 
 // SortedUnorderedMap struct
 pub(crate) struct SortedUnorderedMap<K, V> {
+    tracker: MemoryTracker,
     buckets: Vec<AtomicPtr<Node<K, V>>>,
+    //monitor: RetiredMonitorable,
+    handles: Vec<AtomicPtr<Handle>>,
     bucket_count: usize,
 }
 
 impl<K, V> Node<K, V> {
-    fn new(key: K, value: V, next: *mut Node<K, V>) -> *mut Node<K, V> {
+    fn new(tracker: &MemoryTracker, key: K, value: V, next: *mut Node<K, V>, pid:i32) -> *mut Node<K, V> {
         unsafe {
             let layout = Layout::new::<Node<K, V>>();
-            let ptr = alloc(layout) as *mut Node<K, V>;
+            let ptr = tracker.alloc(layout, pid) as *mut Node<K, V>;
             if ptr.is_null() {
                 panic!("Failed to allocate memory for Node");
             }
@@ -46,12 +54,15 @@ where
     K: Ord + Hash + Clone + Debug,
     V: Clone + Debug,
 {
-    fn new(bucket_count: usize) -> Self {
+    fn new(bucket_count: usize, num_threads:usize) -> Self {
         let mut buckets = Vec::with_capacity(bucket_count);
+        let mut tracker = MemoryTracker::new(num_threads);
+        //let mut monitor = RetiredMonitorable::new(num_threads);
+        let mut handles = Vec::with_capacity(num_threads);
         for _ in 0..bucket_count {
             buckets.push(AtomicPtr::new(null_mut()));
         }
-        SortedUnorderedMap { buckets, bucket_count }
+        SortedUnorderedMap {tracker, buckets, handles, bucket_count}
     }
 
     fn hash(&self, key: &K) -> usize {
@@ -60,10 +71,12 @@ where
         (hasher.finish() as usize) % self.bucket_count
     }
 
-    fn insert(&self, key: K, value: V) -> bool {
+    fn insert(&self, key: K, value: V, tid:i32) -> bool {
         let idx = self.hash(&key);
+        self.handles[tid] = self.tracker.enter();
         let mut prev = &self.buckets[idx];
         let mut cur = prev.load(Ordering::SeqCst);
+        let new_node = Node::new(&self.tracker, key, value, cur, tid);
 
         loop {
             unsafe {
@@ -71,6 +84,7 @@ where
                     let cur_node = &*cur;
                     if cur_node.key >= key {
                         if cur_node.key == key {
+                            self.tracker.leave(self.handles[tid].hptr_snapshot);
                             return false; // Duplicate key found
                         }
                         break; // Found the insertion point
@@ -82,12 +96,13 @@ where
                 }
             }
         }
-
-        let new_node = Node::new(key, value, cur);
-
+        // 下面这一行是做什么的？没懂
+        //self.monitor.collect_retired_size(self.tracker.get_retired_cnt(tid), tid);
         // Try to insert using compare_exchange_strong for lock-free update
         if prev.compare_exchange(cur, new_node, Ordering::SeqCst, Ordering::Relaxed).is_err() {
-            unsafe { Node::dealloc(new_node) }; // If the exchange fails, deallocate the node
+            let layout = Layout::new::<Node<K, V>>();
+            let ptr = new_node as *mut u8;
+            self.tracker.dealloc(ptr, layout);// If the exchange fails, deallocate the node
             return false;
         }
         true
