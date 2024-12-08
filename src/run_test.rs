@@ -3,28 +3,48 @@ use std::alloc::{alloc, dealloc, Layout};
 // use std::fs::File;
 // use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
+use std::time::{Instant, SystemTime};
 use rand::Rng;
+use crate::run_test::link_list::SortedUnorderedMap;
+
 mod link_list;
 
 struct ThreadInfo {
-    thread_id: usize,
+    thread_id: i32,
     seed: u64,
 }
 
-pub struct GlobalTest {
+pub struct GlobalTest<K, V> {
     warmup: u32,
-    num_threads: usize,
+    num_threads: i32,
+    list: SortedUnorderedMap<K, V>,
 }
 
-fn thread_main(thread_info: ThreadInfo) {
-    // 模拟线程的任务
-    println!("Thread PID {:?} with seed {:?}", thread_info.thread_id, thread_info.seed);
-    // 在这里可以执行具体的任务...
-}
+impl<K,V> GlobalTest<K,V> {
+    pub(crate) fn new(warmup: u32, num_threads: i32) -> Self {
+        let list = SortedUnorderedMap::new(1, num_threads);
+        GlobalTest { warmup, num_threads,  list}
+    }
 
-impl GlobalTest {
-    pub(crate) fn new(warmup: u32, num_threads: usize) -> Self {
-        Self { warmup, num_threads}
+    fn thread_main(&self,thread_info: ThreadInfo, contain_percent:f64) {
+        // 模拟线程的任务
+        let mut rng = rand::thread_rng();
+        println!("Thread PID {:?} with seed {:?}", thread_info.thread_id, thread_info.seed);
+        // 在这里可以执行具体的任务...
+        for i in 1..10 {
+            let random_float: f64 = rng.gen_range(0.0..1.0);
+            let random_int: i64 = rng.gen_range(0..6);
+            if random_float < (1.0-contain_percent)/2.0{
+                self.list.insert(random_int, "Ten", thread_info.thread_id);
+                println!("Insert key {:?} success", random_int);
+                continue;
+            }
+            if random_float >= (1.0-contain_percent)/2.0 && random_float < (1.0-contain_percent){
+                println!("Remove key: {:?}", self.list.remove(&random_int, thread_info.thread_id));
+                continue;
+            }
+            println!("Get key 15: {:?}", self.list.gets(&random_int));
+        }
     }
 
     fn warm_memory(&self, megabytes: u32) -> i32 {
@@ -97,7 +117,7 @@ impl GlobalTest {
 
     fn parallel_work(&self) {
         let mut handles = vec![];
-
+        let start = Instant::now();
         for i in 0..self.num_threads {
             // 为每个线程分配一个 pid 和随机种子
             let pid = i;  // 线程ID作为pid
@@ -107,7 +127,7 @@ impl GlobalTest {
 
             // 创建线程并将 thread_info 移动到线程
             let handle = thread::spawn(move || {
-                thread_main(thread_info);  // 每个线程执行独立的 `thread_main` 函数
+                self.thread_main(thread_info,0.8);  // 每个线程执行独立的 `thread_main` 函数
             });
 
             handles.push(handle);
@@ -117,5 +137,7 @@ impl GlobalTest {
         for handle in handles {
             handle.join().unwrap();
         }
+        let duration = start.elapsed().as_nanos();
+        println!("Execution time: {:?} nanosecond", duration);
     }
 }
