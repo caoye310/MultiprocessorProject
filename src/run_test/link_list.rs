@@ -4,19 +4,19 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
-mod Hyaline;
+use std::sync::Arc;
+mod hyaline_alg;
 
-use Hyaline::{MemoryTracker, Node, Handle};
+use hyaline_alg::{MemoryTracker, Node, Handle};
 
 // Node struct
 
 // SortedUnorderedMap struct
 pub(crate) struct SortedUnorderedMap<K, V> {
-    tracker: MemoryTracker<K,V>,
+    tracker: MemoryTracker,
     buckets: Vec<AtomicPtr<Node<K, V>>>,
-    //monitor: RetiredMonitorable,
     handles: Vec<AtomicPtr<Handle<K,V>>>,
-    layout: Layout,
+    //layout: Layout,
     bucket_count: usize,
 }
 
@@ -27,14 +27,17 @@ where
 {
     pub(crate) fn new(bucket_count: usize, num_threads:i32) -> Self {
         let mut buckets = Vec::with_capacity(bucket_count);
-        let mut tracker = MemoryTracker::new(num_threads);
+        let tracker = MemoryTracker::new::<K, V>();
         //let mut monitor = RetiredMonitorable::new(num_threads);
         let mut handles = Vec::with_capacity(num_threads as usize);
         for _ in 0..bucket_count {
             buckets.push(AtomicPtr::new(null_mut()));
         }
-        let layout = Layout::new::<Node<K, V>>();
-        SortedUnorderedMap {tracker, buckets, handles, layout, bucket_count}
+        for _ in 0..num_threads {
+            handles.push(AtomicPtr::new(null_mut()));
+        }
+        //let _layout = Layout::new::<Node<K, V>>();
+        SortedUnorderedMap {tracker, buckets, handles, bucket_count}
     }
 
     fn hash(&self, key: &K) -> usize {
@@ -44,11 +47,14 @@ where
     }
 
     pub(crate) fn insert(&self, key: K, value: V, tid:i32) -> bool {
-        self.handles[tid] = self.tracker.enter();
+        //self.print();
+        let tid = tid as usize;
+        let handle_arc = self.tracker.enter::<K, V>(); // Returns Arc<Handle<K, V>>
+        let raw_handle = Arc::into_raw(handle_arc) as *mut Handle<K, V>; // Convert Arc to raw pointer
+        self.handles[tid].store(raw_handle, Ordering::SeqCst); // Store the raw pointer in AtomicPtr
         let idx = self.hash(&key);
         let mut prev = &self.buckets[idx];
         let mut cur = prev.load(Ordering::SeqCst);
-        let new_node = Node::new(key, value, cur);
 
         loop {
             unsafe {
@@ -56,7 +62,7 @@ where
                     let cur_node = &*cur;
                     if cur_node.key >= key {
                         if cur_node.key == key {
-                            self.tracker.leave(self.handles[tid].hptr_snapshot);
+                            self.tracker.leave(&self.handles[tid]);
                             return false; // Duplicate key found
                         }
                         break; // Found the insertion point
@@ -68,19 +74,24 @@ where
                 }
             }
         }
-
+        let new_node = Node::new(key.clone(), value, cur);
         if prev.compare_exchange(cur, new_node, Ordering::SeqCst, Ordering::Relaxed).is_err() {
-            let ptr = new_node as *mut u8;
-            self.tracker.dealloc(ptr, self.layout);// If the exchange fails, deallocate the node
-            self.tracker.leave(self.handles[tid].hptr_snapshot);
+            let mem_manage= crate::run_test::link_list::hyaline_alg::MyAlloc::new();
+            let layout = Layout::new::<Node<K, V>>();
+            mem_manage.dealloc::<K, V>(new_node as * mut u8, layout);
+            self.tracker.leave(&self.handles[tid]);
             return false;
         }
-        self.tracker.leave(self.handles[tid].hptr_snapshot);
+        self.tracker.leave(&self.handles[tid]);
         true
     }
 
-    fn get(&self, key: &K, tid:i32) -> Option<V> {
-        self.handles[tid] = self.tracker.enter();
+    pub(crate) fn get(&self, key: &K, tid:i32) -> Option<V> {
+        //self.print();
+        let tid = tid as usize;
+        let handle_arc = self.tracker.enter::<K, V>(); // Returns Arc<Handle<K, V>>
+        let raw_handle = Arc::into_raw(handle_arc) as *mut Handle<K, V>; // Convert Arc to raw pointer
+        self.handles[tid].store(raw_handle, Ordering::SeqCst); // Store the raw pointer in AtomicPtr
         let idx = self.hash(key);
         let mut cur = self.buckets[idx].load(Ordering::SeqCst);
 
@@ -88,7 +99,7 @@ where
             unsafe {
                 let cur_node = &*cur;
                 if cur_node.key == *key {
-                    self.tracker.leave(self.handles[tid].hptr_snapshot);
+                    self.tracker.leave(&self.handles[tid]);
                     return Some(cur_node.value.clone());
                 } else if cur_node.key > *key {
                     break;
@@ -96,12 +107,16 @@ where
                 cur = cur_node.next.load(Ordering::SeqCst);
             }
         }
-        self.tracker.leave(self.handles[tid].hptr_snapshot);
+        self.tracker.leave(&self.handles[tid]);
         None
     }
 
     pub(crate) fn remove(&self, key: &K, tid:i32) -> Option<V> {
-        self.handles[tid] = self.tracker.enter();
+        //self.print();
+        let tid = tid as usize;
+        let handle_arc = self.tracker.enter::<K, V>(); // Returns Arc<Handle<K, V>>
+        let raw_handle = Arc::into_raw(handle_arc) as *mut Handle<K, V>; // Convert Arc to raw pointer
+        self.handles[tid].store(raw_handle, Ordering::SeqCst); // Store the raw pointer in AtomicPtr
         let idx = self.hash(key);
         let mut prev = &self.buckets[idx];
         let mut cur = prev.load(Ordering::SeqCst);
@@ -112,10 +127,13 @@ where
                 if cur_node.key == *key {
                     let next = cur_node.next.load(Ordering::SeqCst);
                     if prev.compare_exchange(cur, next, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
-                        let value = cur_node.value.clone();
+                        let value = cur_node.value.clone(); // Create an Arc for the current node
+
+                        // Call retire with the wrapped node
+                        self.tracker.retire(Arc::from_raw(cur));
                         //Node::dealloc(cur);
-                        self.tracker.dealloc(cur_node as *mut u8, self.layout);// If the exchange fails, deallocate the node
-                        self.tracker.leave(self.handles[tid].hptr_snapshot);
+                        //self.tracker.dealloc(cur_node as *mut u8, self.layout);// If the exchange fails, deallocate the node
+                        self.tracker.leave(&self.handles[tid]);
                         return Some(value);
                     }
                 } else if cur_node.key > *key {
@@ -125,25 +143,25 @@ where
                 cur = cur_node.next.load(Ordering::SeqCst);
             }
         }
-        self.tracker.leave(self.handles[tid].hptr_snapshot);
+        self.tracker.leave(&self.handles[tid]);
         None
     }
 
-    fn load(&self) -> Vec<(K, V)> {
-        let mut result = Vec::new();
-        for bucket in &self.buckets {
-            let mut cur = bucket.load(Ordering::SeqCst);
-            while !cur.is_null() {
-                unsafe {
-                    let cur_node = &*cur;
-                    result.push((cur_node.key.clone(), cur_node.value.clone()));
-                    cur = cur_node.next.load(Ordering::SeqCst);
-                }
-            }
-        }
-        result
-    }
-
+    // fn load(&self) -> Vec<(K, V)> {
+    //     let mut result = Vec::new();
+    //     for bucket in &self.buckets {
+    //         let mut cur = bucket.load(Ordering::SeqCst);
+    //         while !cur.is_null() {
+    //             unsafe {
+    //                 let cur_node = &*cur;
+    //                 result.push((cur_node.key.clone(), cur_node.value.clone()));
+    //                 cur = cur_node.next.load(Ordering::SeqCst);
+    //             }
+    //         }
+    //     }
+    //     result
+    // }
+    //
     fn print(&self) {
         for (i, bucket) in self.buckets.iter().enumerate() {
             print!("Bucket {}: ", i);
