@@ -1,13 +1,16 @@
 use libc::{sysconf, _SC_PAGESIZE};
 use std::alloc::{alloc, dealloc, Layout};
+use std::fs::File;
 use std::sync::{Arc, Mutex};
-// use std::fs::File;
-// use std::sync::{Arc, Barrier, Mutex};
+use sysinfo::{System, SystemExt};
+use std::time::Duration;
+use std::io::Write;
 use std::thread;
 use std::time::{Instant};
 use rand::Rng;
 use crate::run_test::link_list::SortedUnorderedMap;
-
+extern crate libc;
+use sys_info;
 mod link_list;
 
 struct ThreadInfo {
@@ -46,18 +49,20 @@ impl GlobalTest {
             }
             if random_float >= (1.0 - contain_percent) / 2.0 && random_float < (1.0 - contain_percent) {
                 //println!("Remove {:?}", random_int);
+                self.list.remove(&random_int, 0);
                 //println!("Remove key: {:?}", self.list.remove(&random_int, 0));
                 continue;
             }
             //println!("Get key {:?}", random_int);
             //println!("Get key : {:?}", self.list.get(&random_int, 0));
+            self.list.get(&random_int, 0);
         }
     }
 
     fn thread_main(&self, thread_info: ThreadInfo, contain_percent: f64) {
         let mut rng = rand::thread_rng();
         //println!("Thread PID {:?} with seed {:?}", thread_info.thread_id, thread_info.seed);
-        for i in 1..10000 {
+        for i in 1..500000 {
             let random_float: f64 = rng.gen_range(0.0..1.0);
             let random_int: i64 = rng.gen_range(0..100);
             if random_float < (1.0 - contain_percent) / 2.0 {
@@ -145,6 +150,39 @@ impl GlobalTest {
             let contain_percent = self.contain_percent;
             // Wrap self in an Arc and Mutex for safe shared ownership
             let self_arc = Arc::new(Mutex::new(self));  // Wrap `self` in an Arc<Mutex<YourStruct>>
+
+            // 创建一个线程安全的共享变量存储内存数据
+            let memory_data = Arc::new(Mutex::new(Vec::new()));
+            let system_arc = Arc::new(Mutex::new(System::new_all()));
+
+            // 定时任务线程
+            let memory_data_clone = Arc::clone(&memory_data);
+            let system_clone = Arc::clone(&system_arc);
+            let monitor_handle = thread::spawn(move || {
+                for _ in 0..(5.0/0.02) as usize { // 1秒钟的采样次数，(1.0 / 0.001) 代表每秒 1000 次
+                    {
+                        // 锁定 system_clone 并更新内存信息
+                        let mut system = system_clone.lock().unwrap();
+                        system.refresh_memory(); // 假设你有一个 `refresh_memory` 方法
+
+                        // Get system's available memory
+                        match sys_info::mem_info() {
+                            Ok(info) => {
+                                // 输出可用内存，以字节为单位
+                                //let mut available_memory= ;
+                                let mut data = memory_data_clone.lock().unwrap();
+                                data.push(info.avail);
+                                //println!("Available memory: {} bytes", info.avail);
+                            },
+                            Err(e) => eprintln!("Error fetching memory info: {}", e)
+                        }
+
+                    }
+                    // 每隔 1 毫秒睡眠
+                    thread::sleep(Duration::from_millis(20));
+                }
+            });
+
             for i in 0..number_of_threads {
                 let pid = i;  // thread id
                 //let seed: u64 = rand::thread_rng().random();
@@ -164,11 +202,22 @@ impl GlobalTest {
             for handle in handles {
                 handle.join().unwrap();
             }
+            monitor_handle.join().unwrap();
+
             let duration = start.elapsed().as_nanos();
             println!("Execution time: {:?} nanosecond", duration);
+
+            // 输出内存数据到 CSV 文件
+            let data_file = "memory_data.csv";
+            let mut file = File::create(data_file).expect("file creation error");
+            let memory_data = memory_data.lock().unwrap();
+            for (i, &value) in memory_data.iter().enumerate() {
+                writeln!(file, "{},{:.2}", i as f64 * 0.2, value as i64).expect("error writing memory data");
+            }
+
         }
         else{
-            self.thread_main_debug(0.8);
+            self.thread_main_debug(0.2);
         }
     }
 }

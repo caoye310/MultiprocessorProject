@@ -24,6 +24,9 @@ impl MyAlloc {
     }
     // dealloc memory
     pub(crate) fn dealloc<K,V>(&self, ptr: *mut u8, layout: Layout) {
+        if ptr.is_null() {
+            panic!("Attempt to deallocate a null pointer!");
+        }
         unsafe { dealloc(ptr, layout) };
     }
 }
@@ -265,7 +268,7 @@ impl MemoryTracker
                                 Ordering::Release, // success ordering
                                 Ordering::Acquire, // failure ordering
                             ) {
-                                Ok(_) => break handle, // Successfully updated, return the snapshot
+                                Ok(_) => break, // Successfully updated, return the snapshot
                                 Err(_) => {} // CAS failed, retry
                             }
                         };
@@ -274,7 +277,9 @@ impl MemoryTracker
                     mem_manage.dealloc::<K,V>(current as * mut u8, self.layout);
                     // If current is the next of head, don't forget to update the head! change the hptr of head to 0!
                 }
-                if current == handle.load(Ordering::Acquire) as * mut Node<K,V>{
+                let tmp_handle = (&*handle.load(Ordering::Acquire)).next.load(Ordering::Acquire);
+                if current == tmp_handle{
+                    //println!("current == tmp_handle");
                     break;
                 }
                 // Move to the next node
