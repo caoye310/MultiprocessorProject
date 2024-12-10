@@ -13,9 +13,9 @@ impl MyAlloc {
 
     pub(crate) fn alloc<K,V>(&self, layout: Layout) -> *mut u8 {
         unsafe {
-            // alloc memory for node
+            // Alloc memory for node
             let ptr = alloc(layout);
-            // if failed print "Memory allocation failed!"
+            // If failed print "Memory allocation failed!"
             if ptr.is_null() {
                 panic!("Memory allocation failed!");
             }
@@ -99,7 +99,7 @@ impl AtomicHead {
             href, // Initialize HRef and HPtr to 0
         }
     }
-    // before return, change head to handle
+    // Before return, change head to handle
     pub(crate) fn head_to_handle<K, V>(&self) -> Arc<Handle<K, V>>{
         let tmpi128 = self.href.load(Ordering::Acquire);
         let nref = (tmpi128 >> 64) as i64;
@@ -133,23 +133,18 @@ impl MemoryTracker
         V: Clone + Debug,
     {
         println!("print");
-        // 从 AtomicHead 获取头部节点指针
         //let tmpi128 = self.head.href.load(Ordering::Acquire);
         let handle = self.head.head_to_handle();
        // let href = handle.nref.load(Ordering::Acquire);
         let node_ptr = handle.next.load(Ordering::Acquire);
-        //let node_ptr = hptr as *mut Node<K, V>;  // 将指针转换为 Node 类型
 
-        // 初始化一个字符串构造器，用于构建链表的输出格式
+        // Output string stored in result
         let mut result = String::new();
         result.push_str(&format!("({:?}, {:?})",
                                  handle.nref.load(Ordering::Acquire),
                                  handle.next.load(Ordering::Acquire)));
         let mut current_node = node_ptr;
-        // let mut first = true;  // 用于控制是否打印箭头
-        // if current_node.is_null(){
-        //     println!("not my problem!");
-        // }
+
         while !current_node.is_null() {
             unsafe {
                 let node = &*current_node;  // 解引用当前节点
@@ -158,7 +153,7 @@ impl MemoryTracker
                                          node.value,
                                          node.nref.load(Ordering::Acquire),
                                          node.next.load(Ordering::Acquire)));
-                // 获取下一个节点的指针
+                // Get the pointer to the next node
                 current_node = node.next.load(Ordering::Acquire) as *mut Node<K, V>;
             }
         }
@@ -172,9 +167,9 @@ impl MemoryTracker
     {
         //println!("enter ...");
         loop {
-            // get the current head
+            // Get the current head
             let current = self.head.href.load(Ordering::Acquire);
-            // the snapshot handle of current list
+            // The snapshot handle of current list
             let handle = self.head.head_to_handle();
             let href = handle.nref.load(Ordering::Acquire);
             let hptr = handle.next.load(Ordering::Acquire);
@@ -254,7 +249,7 @@ impl MemoryTracker
                             .compare_exchange(current, next_node, Ordering::Release, Ordering::Relaxed)
                             .unwrap(); // CAS to update the next pointer
                     }else{
-                        // if current is the next of head, don't forget to update the head! change the hptr of head to 0!
+                        // If current is the next of head, don't forget to update the head! change the hptr of head to 0!
                         loop {
                             // the snapshot handle of current list
                             let up_head_current = self.head.href.load(Ordering::Acquire);
@@ -277,7 +272,7 @@ impl MemoryTracker
                     }
                     let mem_manage= MyAlloc::new();
                     mem_manage.dealloc::<K,V>(current as * mut u8, self.layout);
-                    // if current is the next of head, don't forget to update the head! change the hptr of head to 0!
+                    // If current is the next of head, don't forget to update the head! change the hptr of head to 0!
                 }
                 if current == handle.load(Ordering::Acquire) as * mut Node<K,V>{
                     break;
@@ -296,17 +291,17 @@ impl MemoryTracker
     {
         //println!("retire ...");
         loop {
-            // get the head
+            // Get the head
             let current = self.head.href.load(Ordering::Acquire);
             let href = (current >> 64) as i64;
             let hptr = current as usize;
-            // the head point to the new node so the new node is inserted after the head
+            // The head point to the new node so the new node is inserted after the head
             // new_node.next point to the node that the old head point to
             new_node.next.store(hptr as *mut Node<K, V>, Ordering::Release);
 
             let new_head= ((href as i128) << 64) | ((Arc::as_ptr(&new_node) as usize) as i128);
 
-            // use cas to update the head
+            // Use CAS to update the head
             match self.head.href.compare_exchange(
                 current,
                 new_head,
@@ -314,7 +309,7 @@ impl MemoryTracker
                 Ordering::Acquire,
             ) {
                 Ok(_) => break,
-                Err(_) => {} // if cas failed, keep trying
+                Err(_) => {} // If CAS failed, keep trying
             }
         }
 
@@ -336,4 +331,3 @@ impl MemoryTracker
         }
     }
 }
-

@@ -18,19 +18,20 @@ struct ThreadInfo {
 pub struct GlobalTest {
     warmup: u32,
     num_threads: i32,
+    contain_percent:f64,
     list: SortedUnorderedMap<i64, i32>,
+    //queue = Arc::new(Mutex::new(Vec::new()));
 }
 
 impl GlobalTest {
-    pub(crate) fn new(warmup: u32, num_threads: i32) -> Self {
+    pub(crate) fn new(warmup: u32, num_threads: i32, contain_percent:f64) -> Self {
         let list = SortedUnorderedMap::new(1, num_threads);
-        GlobalTest { warmup, num_threads, list }
+        GlobalTest { warmup, num_threads, contain_percent, list}
     }
 
     fn thread_main_debug(&self, contain_percent: f64) {
         let mut rng = rand::thread_rng();
        // println!("Thread PID {:?} with seed {:?}", thread_info.thread_id, thread_info.seed);
-        // 在这里可以执行具体的任务...
         for i in 1..3000 {
             let random_float: f64 = rng.gen_range(0.0..1.0);
             let random_int: i64 = rng.gen_range(0..5);
@@ -54,10 +55,8 @@ impl GlobalTest {
     }
 
     fn thread_main(&self, thread_info: ThreadInfo, contain_percent: f64) {
-        // 模拟线程的任务
         let mut rng = rand::thread_rng();
         //println!("Thread PID {:?} with seed {:?}", thread_info.thread_id, thread_info.seed);
-        // 在这里可以执行具体的任务...
         for i in 1..10000 {
             let random_float: f64 = rng.gen_range(0.0..1.0);
             let random_int: i64 = rng.gen_range(0..100);
@@ -83,49 +82,46 @@ impl GlobalTest {
     }
 
     fn warm_memory(&self, megabytes: u32) -> i32 {
-        // 计算需要预热的内存大小
+        // The size of memory
         let preheat: usize = (megabytes as usize) * (2 << 20);
         let mut ret = 0;
 
-        // 获取系统页大小
+        // Get the size of system page
         let block_size = unsafe { sysconf(_SC_PAGESIZE) };
         let block_size = block_size as usize;
 
-        // 计算需要分配的块数
+        // Calculate how many blocks we need
         let to_alloc = preheat / block_size;
 
-        // 存储已分配的内存块
         // Vec::new()：创建一个空列表，创建一个空列表时需要指明数据类型
-        // 当需要写入内存时，必须用mut修饰，代表可变变量
+        // we need mut if we want to write sth to the memory, mut means the variable is changeable
         let mut allocd: Vec<*mut u8> = Vec::new();
-        // layout指定的大小和对齐方式
-        // alloc按照layout指定的方式分配内存
+        // layout: memory size and align method
+        // Alloc function will alloc memory according to the layout
         let layout = Layout::array::<u8>(block_size / 4).expect("Invalid layout");
-        // 分配内存
         for _ in 0..to_alloc {
-            // 尝试分配块
             unsafe {
-                // 分配内存，同c++中的 int32_t* ptr  = (int32_t*)malloc(blockSize);
+                // alloc memory, similar to int32_t* ptr  = (int32_t*)malloc(blockSize); in c++
                 let ptr = alloc(layout);
                 let ptr2 = alloc(layout);
                 let ptr3 = alloc(layout);
 
                 if ptr.is_null() || ptr2.is_null() || ptr3.is_null() {
-                    // 如果内存分配失败，那么warmup返回-1
+                    // If alloc failed，return -1
                     if !ptr.is_null() { dealloc(ptr, layout); }
                     if !ptr2.is_null() { dealloc(ptr2, layout); }
                     if !ptr3.is_null() { dealloc(ptr3, layout); }
                     ret = -1;
                     break;
                 }
-                // 释放之前分配的内存
+                // Release the memory
                 dealloc(ptr2, layout);
                 dealloc(ptr3, layout);
                 ptr.write(1);
                 allocd.push(ptr);
             }
         }
-        // 释放内存
+        // Dealloc the memory
         unsafe {
             for &p in &allocd {
                 dealloc(p, layout);
@@ -146,25 +142,25 @@ impl GlobalTest {
             let mut handles = vec![];
             let start = Instant::now();
             let number_of_threads = self.num_threads;
+            let contain_percent = self.contain_percent;
             // Wrap self in an Arc and Mutex for safe shared ownership
             let self_arc = Arc::new(Mutex::new(self));  // Wrap `self` in an Arc<Mutex<YourStruct>>
             for i in 0..number_of_threads {
-                // 为每个线程分配一个 pid 和随机种子
-                let pid = i;  // 线程ID作为pid
-                //let seed: u64 = rand::thread_rng().random();  // 随机生成一个种子
+                let pid = i;  // thread id
+                //let seed: u64 = rand::thread_rng().random();
 
                 let thread_info = ThreadInfo { thread_id: pid};
                 let self_clone = Arc::clone(&self_arc); // Clone the Arc to share ownership across threads
-                // 创建线程并将 thread_info 移动到线程
+                // Create a thread and give it thread_info
                 let handle = thread::spawn(move || {
                     let self_locked = self_clone.lock().unwrap();
-                    self_locked.thread_main(thread_info, 0.8);  // 每个线程执行独立的 `thread_main` 函数
+                    self_locked.thread_main(thread_info, contain_percent);  // Each thread run `thread_main` independently
                 });
 
                 handles.push(handle);
             }
 
-            // 等待所有线程完成
+            // Waiting for all the threads finish
             for handle in handles {
                 handle.join().unwrap();
             }
@@ -172,7 +168,7 @@ impl GlobalTest {
             println!("Execution time: {:?} nanosecond", duration);
         }
         else{
-            self.thread_main_debug(0.2);
+            self.thread_main_debug(0.8);
         }
     }
 }

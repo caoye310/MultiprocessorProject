@@ -5,7 +5,8 @@ mod run_test;
 fn main() {
 
     // Run the test
-    let test = GlobalTest::new(8,8);
-    test.run_test();
+    for i in [0.8] {
+        let test = GlobalTest::new(32, 8,i);
+        test.run_test();
+    }
 }
-
