@@ -14,6 +14,7 @@ Percentage of reading: 0.8
 Execution time: 42560526500 nanosecond
 ```
 A file named memory_data.csv will be created. 
+
 2. Draw
 ```
 python draw.py
