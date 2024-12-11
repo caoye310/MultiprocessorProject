@@ -62,9 +62,9 @@ impl GlobalTest {
     fn thread_main(&self, thread_info: ThreadInfo, contain_percent: f64) {
         let mut rng = rand::thread_rng();
         //println!("Thread PID {:?} with seed {:?}", thread_info.thread_id, thread_info.seed);
-        for i in 1..500000 {
+        for i in 1..50000 {
             let random_float: f64 = rng.gen_range(0.0..1.0);
-            let random_int: i64 = rng.gen_range(0..100);
+            let random_int: i64 = rng.gen_range(0..10000);
             if random_float < (1.0 - contain_percent) / 2.0 {
                 //println!("Insert key {:?}", random_int);
                 if self.list.insert(random_int, i, thread_info.thread_id) {
@@ -159,7 +159,7 @@ impl GlobalTest {
             let memory_data_clone = Arc::clone(&memory_data);
             let system_clone = Arc::clone(&system_arc);
             let monitor_handle = thread::spawn(move || {
-                for _ in 0..(5.0/0.02) as usize { // 1秒钟的采样次数，(1.0 / 0.001) 代表每秒 1000 次
+                for _ in 0..(35.0/0.02) as usize { // 1秒钟的采样次数，(1.0 / 0.001) 代表每秒 1000 次
                     {
                         // 锁定 system_clone 并更新内存信息
                         let mut system = system_clone.lock().unwrap();
