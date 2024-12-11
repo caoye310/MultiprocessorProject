@@ -1,6 +1,6 @@
 ### Evaluation of safe memory reclamation schemes in Rust
 
-#### Usage
+#### Usage of Hyaline
 1. Get the throughput using Cargo:
 ```
 cargo run -- 8 0.8
