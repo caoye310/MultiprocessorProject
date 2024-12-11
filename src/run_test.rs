@@ -64,7 +64,7 @@ impl GlobalTest {
         //println!("Thread PID {:?} with seed {:?}", thread_info.thread_id, thread_info.seed);
         for i in 1..50000 {
             let random_float: f64 = rng.gen_range(0.0..1.0);
-            let random_int: i64 = rng.gen_range(0..10000);
+            let random_int: i64 = rng.gen_range(0..100);
             if random_float < (1.0 - contain_percent) / 2.0 {
                 //println!("Insert key {:?}", random_int);
                 if self.list.insert(random_int, i, thread_info.thread_id) {
