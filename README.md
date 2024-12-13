@@ -32,4 +32,20 @@ python draw.py
 - Ensure that the necessary dependencies (e.g., matplotlib) are installed before running this script.
 
 
-https://drive.google.com/file/d/1srlIrPQjlsjKrhFGIdZ4FCKa0_wT8NPo/view?usp=sharing
+#### Usage of POIBR
+
+1. Run the built executable directly:
+You can run the executable:
+```
+./poibr_memory 8 0.8
+```
+- The first argument is the number of threads.
+- The second argument is the percentage of read operations (in decimal format).
+
+2. Generate the Memory Usage Plot:
+Run the following command to create a memory usage plot:
+```
+python draw.py
+```
+- This command processes the data and generates a file named memory_usage_plot.png in the current directory.
+- Ensure that the necessary dependencies (e.g., matplotlib) are installed before running this script.
